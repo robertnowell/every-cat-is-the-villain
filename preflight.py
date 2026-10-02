@@ -160,12 +160,15 @@ say("9/9 Cat detection on the real camera: hold the plush 30-100 cm in front, at
 ask("  Plush in view? Press Enter")
 from ultralytics import YOLO
 import torch
-m = YOLO("yolo11n.pt"); dev = "mps" if torch.backends.mps.is_available() else "cpu"
+_cl = cv2.createCLAHE(2.5, (8, 8))
+def clahe(f):
+    l, a, b = cv2.split(cv2.cvtColor(f, cv2.COLOR_BGR2LAB)); return cv2.cvtColor(cv2.merge([_cl.apply(l), a, b]), cv2.COLOR_LAB2BGR)
+m = YOLO("yolo11m.pt"); dev = "mps" if torch.backends.mps.is_available() else "cpu"
 cap = cv2.VideoCapture(f"http://{A.host}:{A.video_port}/stream"); hits, n, best = 0, 0, 0.0; t0 = time.time()
 while time.time() - t0 < 8:
     good, f = cap.read()
     if not good: continue
-    n += 1; r = m(f, classes=[15], conf=0.25, verbose=False, device=dev)[0]
+    n += 1; r = m(clahe(f), classes=[15, 16, 77], conf=0.15, verbose=False, device=dev)[0]
     if len(r.boxes): hits += 1; best = max(best, float(r.boxes.conf.max()))
 cap.release()
 ok("plush detected as cat", n and hits / n > 0.5, hit_rate=round(hits / max(n, 1), 2), best_conf=round(best, 2), frames=n)

@@ -2,7 +2,7 @@
 import argparse, time, collections, threading, json, os
 import cv2
 from shapes import Mode, Threat, FreeSpace, to_json, now
-from perceive import Perceiver, StallDetector
+from perceive import Perceiver, StallDetector, CAT_LIKE
 from reflex import reflex
 from recorder import Recorder
 
@@ -23,7 +23,9 @@ def main():
     a = ap.parse_args()
 
     car = __import__("sim").SimCar(a.sim) if a.sim else __import__("car").ElegooCar(a.host, a.video_port, a.cmd_port)
-    per, rec = Perceiver(), Recorder()
+    # real car: the medium model on contrast-boosted frames at conf 0.15 (small model found the plush in 1/70 frames, this 22/70)
+    per = Perceiver() if a.sim else Perceiver(os.environ.get("CAT_WEIGHTS", "yolo11m.pt"), conf=0.15, clahe=True, classes=CAT_LIKE)
+    rec = Recorder()
     sup = None if a.no_cloud else __import__("supervisor").Supervisor()
     mode, last_sup, recent = Mode(now(), "idle", 1e9), 0.0, collections.deque(maxlen=12)
     NARRATE = Mode(now(), "idle", 1e9)             # what the reflex sees when the cloud only narrates
@@ -77,6 +79,10 @@ def main():
                 car.stop(); time.sleep(0.05); continue
             ultra = car.ultrasonic_cm() if not a.sim else None
             th, fs = per.threat(f), per.free_space(f, ultra)
+            v = state.get("verdict")                     # Cosmos saw a cat in the last 2.5 s and YOLO did not: trust Cosmos
+            if not th.present and v is not None and v.cat_intent.startswith("visible") and time.time() - v.t < 2.5:
+                side = v.cat_intent.split(",")[-1].strip()
+                th = Threat(now(), True, None, {"left": -20.0, "right": 20.0}.get(side, 0.0), 0.3, 0.5, None, kind="threat")
             if th.present and not prev_present and time.time() - last_panic > PANIC_COOLDOWN:
                 last_panic = time.time(); state["panic"] = last_panic       # dashboard plays the panic video
                 try: car.flash_red(1.5)                                      # car lights go red

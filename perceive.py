@@ -5,24 +5,40 @@ import numpy as np
 from shapes import Threat, FreeSpace, now
 
 CAT = 15  # COCO class id
+# The plush reads as "dog" (0.83) far more than "cat"; counting cat, dog and teddy bear took the floor test from 0/46 to 46/46 frames
+CAT_LIKE = [15, 16, 77]
 
 class Perceiver:
-    def __init__(self, weights="yolo11n.pt", device=None, conf=0.30, hfov_deg=62.0, debounce=2):
+    def __init__(self, weights="yolo11n.pt", device=None, conf=0.30, hfov_deg=62.0, debounce=2, clahe=False, window=5, classes=(CAT,)):
         from ultralytics import YOLO
-        import torch
+        import torch, collections
         self.model = YOLO(weights)
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
-        self.conf, self.hfov, self.debounce = conf, hfov_deg, debounce
+        self.conf, self.hfov, self.debounce, self.classes = conf, hfov_deg, debounce, list(classes)
         self._hits = 0
+        self._recent = collections.deque(maxlen=window)    # present = debounce hits within the last `window` frames
+        self._last_box = None
+        self._clahe = None
+        if clahe:                                          # the car's camera is pale and low-contrast (measured 2 Oct)
+            import cv2
+            self._clahe = cv2.createCLAHE(2.5, (8, 8))
         self._depth = None
         self._depth_tried = False
 
+    def _prep(self, frame):
+        if self._clahe is None: return frame
+        import cv2
+        l, a, b = cv2.split(cv2.cvtColor(frame, cv2.COLOR_BGR2LAB))
+        return cv2.cvtColor(cv2.merge([self._clahe.apply(l), a, b]), cv2.COLOR_LAB2BGR)
+
     def threat(self, frame) -> Threat:
         h, w = frame.shape[:2]
-        r = self.model.track(frame, classes=[CAT], conf=self.conf, device=self.device,
+        r = self.model.track(self._prep(frame), classes=self.classes, conf=self.conf, device=self.device,
                              persist=True, verbose=False, tracker="bytetrack.yaml")[0]
         if r.boxes is None or len(r.boxes) == 0:
-            self._hits = 0
+            self._recent.append(False); self._hits = sum(self._recent)
+            if self._hits >= self.debounce and self._last_box is not None:   # a flickering detection still counts
+                return self._last_box._replace(t=now()) if hasattr(self._last_box, "_replace") else Threat(now(), True, *self._last_box[2:])
             return Threat(now(), False)
         # biggest cat wins
         boxes = r.boxes.xyxy.cpu().numpy(); confs = r.boxes.conf.cpu().numpy()
@@ -32,10 +48,12 @@ class Perceiver:
         cx = (x1 + x2) / 2
         bearing = (cx - w / 2) / (w / 2) * (self.hfov / 2)
         proximity = float((y2 - y1) / h)
-        self._hits = min(self._hits + 1, self.debounce)
+        self._recent.append(True); self._hits = sum(self._recent)
         present = self._hits >= self.debounce
-        return Threat(now(), present, None if ids[i] is None else int(ids[i]), float(bearing),
-                      proximity, float(confs[i]), [int(v) for v in (x1, y1, x2, y2)])
+        t = Threat(now(), present, None if ids[i] is None else int(ids[i]), float(bearing),
+                   proximity, float(confs[i]), [int(v) for v in (x1, y1, x2, y2)])
+        self._last_box = (t.t, True, t.track, t.bearing, t.proximity, t.conf, t.bbox)
+        return t
 
     # ---- free space ----
     def _load_depth(self):
