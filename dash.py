@@ -21,6 +21,7 @@ input{box-sizing:border-box;width:100%;padding:10px;font-size:16px;background:#1
 <div class="p" id="mapbox" style="display:none"><div class="k">the room, from above (simulator only) · blue robot, red cat</div><img id="map" style="margin-top:6px">
  <button onclick="releaseCat()" style="margin-top:8px;padding:8px 14px;border-radius:6px;border:0;background:#8cf;color:#111;font-weight:700;cursor:pointer">Release a new cat</button></div>
 <div class="p"><div class="k">cat</div><div id="threat"></div></div>
+<div class="p"><div class="k">hot dog</div><div id="hotdog"></div></div>
 <div class="p"><div class="k">vision verdict</div><div id="verdict"></div></div>
 <div class="p"><div class="k">ask the memory</div><input id="q" placeholder="when did the cat last corner me?" onkeydown="if(event.key==='Enter')ask()"><div id="answer"></div><div id="clips"></div></div></div></div>
 <script>
@@ -42,6 +43,7 @@ async function tick(){const s=await (await fetch('/state')).json();
  document.getElementById('mode').textContent=s.mode.mode; document.getElementById('mode').className='big mode-'+s.mode.mode;
  document.getElementById('reason').textContent=s.mode.reason||''; document.getElementById('lat').textContent='verdict '+(s.verdict.latency_s||'-')+' s · planner '+(s.mode.latency_s||'-')+' s · loop '+(s.fps||0)+' fps';
  const t=s.threat; document.getElementById('threat').textContent=t.present?('bearing '+t.bearing.toFixed(0)+'° · proximity '+t.proximity.toFixed(2)+' · conf '+t.conf.toFixed(2)+' · track '+t.track):'no cat';
+ const hd=(s.verdict&&s.verdict.hotdog)||'none'; document.getElementById('hotdog').textContent=hd.startsWith('visible')?('hot dog · '+hd.split(',').pop().trim()):'no hot dog';
  const v=s.verdict; document.getElementById('verdict').textContent=v.model?((v.see?('“'+v.see+'” '):'')+'· cat '+v.cat_intent+' · open '+v.open_dir+(v.cornered?' · boxed in':'')+'  ('+v.model.split('/').pop()+')'):'none yet';
  document.getElementById('why').textContent=s.paused?'PAUSED: wheels stopped, still watching':(s.command.why||''); showPause(s.paused);}
 setInterval(tick,500); tick();

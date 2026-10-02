@@ -122,7 +122,7 @@ def main():
                     th = Threat(now(), False)
                 if fresh and v.t != last_seen_verdict[0]:
                     last_seen_verdict[0] = v.t
-                    plog("cosmos: %s | %s" % (v.cat_intent, (v.see or "")[:80]))
+                    plog("cosmos: cat %s, hot dog %s | %s" % (v.cat_intent, getattr(v, "hotdog", "?"), (v.see or "")[:80]))
                     if th.present: sighting("cosmos")
                     elif getattr(v, "hotdog", "none").startswith("visible"):
                         happy("cosmos", v.hotdog.split(",")[-1].strip())
