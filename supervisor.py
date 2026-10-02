@@ -33,7 +33,7 @@ def _json(s: str) -> dict:
 
 class Supervisor:
     def __init__(self):
-        self.nv = OpenAI(base_url=NV_BASE, api_key=os.environ.get("NVIDIA_API_KEY", "missing"))
+        self.nv = OpenAI(base_url=NV_BASE, api_key=os.environ.get("COSMOS_API_KEY") or os.environ.get("NVIDIA_API_KEY", "missing"))
         self.wb = OpenAI(base_url=WB_BASE, api_key=os.environ.get("WANDB_API_KEY", "missing"),
                          default_headers={"OpenAI-Project": WB_PROJECT})
         self.plan = self._plan
@@ -48,7 +48,7 @@ class Supervisor:
         t0 = time.time()
         r = self.nv.chat.completions.create(model=NV_MODEL, max_tokens=120, temperature=0.2, messages=[{"role": "user", "content": [
             {"type": "text", "text": VERDICT_PROMPT}, {"type": "image_url", "image_url": {"url": url}}]}])
-        d = _json(r.choices[0].message.content or "")
+        d = _json((r.choices[0].message.content or "").replace("```json", "").replace("```", ""))
         vis = d.get("cat_visible", False); vis = vis if isinstance(vis, bool) else str(vis).lower() == "true"
         v = Verdict(now(), bool(d.get("cornered", False)), str(d.get("open_dir", "center")),
                     ("visible, " + str(d.get("cat_side", "")).strip()) if vis else "none", clip, NV_MODEL)

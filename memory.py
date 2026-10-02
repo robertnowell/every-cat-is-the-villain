@@ -44,7 +44,7 @@ class Memory:
     def __init__(self, root="clips", index_path=None):
         self.root = root
         self.index_path = index_path or os.path.join(root, "memory.json")
-        self.nv = OpenAI(base_url=NV_BASE, api_key=os.environ.get("NVIDIA_API_KEY", "missing"))
+        self.nv = OpenAI(base_url=NV_BASE, api_key=os.environ.get("COSMOS_API_KEY") or os.environ.get("NVIDIA_API_KEY", "missing"))
         self.emb = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ.get("NVIDIA_API_KEY", "missing"))
         self.wb = OpenAI(base_url=WB_BASE, api_key=os.environ.get("WANDB_API_KEY", "missing"), default_headers={"OpenAI-Project": WB_PROJECT})
         self.rows = json.load(open(self.index_path)) if os.path.exists(self.index_path) else []

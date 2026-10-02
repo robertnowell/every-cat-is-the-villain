@@ -63,7 +63,8 @@ drive commands only when they change plus a 10 Hz keepalive, ultrasonic polled a
 From the team config the event hands out (`/config/<team>.config` on the event VM):
 
     export INGRESS_URL=... USERNAME=... PASSWORD=...            # VAST video pipeline backend (JWT login)
-    export COSMOS_BASE=$COSMOS3_REASON_URL/v1 COSMOS_MODEL=nvidia/cosmos3-reason   # live verdict + captions on Cosmos (no key)
+    export COSMOS_BASE=http://<cosmos_host>:8001/v1 COSMOS_MODEL=nvidia/cosmos3-nano-reasoner COSMOS_API_KEY=<GPU_BEARER_TOKEN>
+                                                                # live verdict + clip captions on Cosmos (CoreWeave); host/port from vss2-secret
     export WANDB_API_KEY=... WANDB_PROJECT=$WANDB_TEAM/$WANDB_PROJECT WEAVE=1   # planner + answers on W&B Inference, traced in Weave
     MEMORY_BACKEND=vast python main.py --dash
 
