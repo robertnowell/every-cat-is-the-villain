@@ -1,6 +1,6 @@
 #!/bin/bash
 # The real car. Run from your own Terminal (macOS only lets Terminal reach the car's local network).
-# THE WHEELS MOVE as soon as this starts: car on the floor, about 1 m clear around it.
+# Starts PAUSED: the wheels move only after Resume on the dashboard. Car on the floor, about 1 m clear around it.
 # Dashboard: http://localhost:8000   Stop: Ctrl-C (the car stops when the link closes).
 #   RELAY=1 ./run_car.sh   also sends clips to VAST through the event machine (uses phone data, ~1 GB/hour)
 cd "$(dirname "$0")"; mkdir -p demo_logs
@@ -14,7 +14,7 @@ if [ "${RELAY:-0}" = "1" ]; then
 fi
 CS=$(command -v claude-secrets || ls ~/.claude/plugins/cache/claude-secrets-marketplace/claude-secrets/*/bin/claude-secrets 2>/dev/null | tail -1)
 [ -x "$CS" ] || { echo "claude-secrets not found"; exit 1; }
-echo "Starting in 3 s: THE WHEELS WILL MOVE. Ctrl-C stops the car."; sleep 3
+echo "The car starts PAUSED. Open http://localhost:8000 and press Resume (or space) to let the wheels move. Ctrl-C stops everything."
 : > demo_logs/car.log; tail -f demo_logs/car.log & TAIL=$!; trap 'kill $TAIL $TUN 2>/dev/null' EXIT
 COSMOS_BASE=${COSMOS_BASE:-http://166.19.38.112:8001/v1} COSMOS_MODEL=${COSMOS_MODEL:-nvidia/cosmos3-nano-reasoner} \
 MEMORY_BACKEND=$MEMORY_BACKEND RELAY_TOKEN=$RELAY_TOKEN \

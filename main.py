@@ -29,7 +29,7 @@ def main():
     sup = None if a.no_cloud else __import__("supervisor").Supervisor()
     mode, last_sup, recent = Mode(now(), "idle", 1e9), 0.0, collections.deque(maxlen=12)
     NARRATE = Mode(now(), "idle", 1e9)             # what the reflex sees when the cloud only narrates
-    state = {"mode": mode}
+    state = {"mode": mode, "paused": not a.sim and a.dash}   # the real car waits for Resume on the dashboard
     if a.dash:
         from dash import Dash, annotate
         mem = None
@@ -92,6 +92,8 @@ def main():
             if th.present: last = th
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())
             cmd = reflex(th, fs, mode if a.cloud_steers else NARRATE, ultra, last, stuck)
+            if state.get("paused"):                      # dashboard pause: wheels stop, perception and recording go on
+                cmd = cmd.__class__(**{**cmd.__dict__, "l": 0, "r": 0, "why": "paused"}) if hasattr(cmd, "__dict__") else cmd
             last_cmd = (cmd.l, cmd.r)
             car.drive(cmd.l, cmd.r)
             rec.frame(f); rec.event(th); rec.event(fs); rec.event(cmd)
