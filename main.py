@@ -92,13 +92,15 @@ def main():
         except Exception as e: plog("flash failed: %s" % e)
         rec.event_raw('{"kind":"panic","t":%f}' % t)
     last_happy_sight, last_happy_t = [0.0], [0.0]
+    seek = {"seen": 0.0, "side": "center"}            # hot dog tracking: last time and side Cosmos saw it
+    SEEK_LOST_S, SEEK_SEARCH_S, SEEK_PWM, SEEK_TURN = 2.5, 8.0, 90, 85
     HAPPY_WIGGLE_S, HAPPY_WIGGLE_PWM = 1.2, 170       # quick spins back and forth
     HAPPY_APPROACH_S, HAPPY_APPROACH_PWM = 3.0, 90    # then a slow creep toward the hot dog
     def happy(src, side):
         t = time.time(); gap = t - last_happy_sight[0]; last_happy_sight[0] = t
         if gap < EPISODE_GAP or t - last_happy_t[0] < PANIC_COOLDOWN: return
         last_happy_t[0] = t; state["happy"] = t; state["pan_from"] = None
-        state["maneuver"] = ("happy", t, t + HAPPY_WIGGLE_S, t + HAPPY_WIGGLE_S + HAPPY_APPROACH_S, side)
+        state["maneuver"] = ("happy", t, t + HAPPY_WIGGLE_S, t + 3600, side)   # ends on arrival, a cat, or a lost search
         plog("HAPPY fired: hot dog %s, video should play (%s)" % (side, src))
         try: car.lights(0, 255, 0)
         except Exception as e: plog("green lights failed: %s" % e)
@@ -127,7 +129,9 @@ def main():
                     plog("cosmos: cat %s, hot dog %s | %s" % (v.cat_intent, getattr(v, "hotdog", "?"), (v.see or "")[:80]))
                     if th.present: sighting("cosmos")
                     elif getattr(v, "hotdog", "none").startswith("visible"):
-                        happy("cosmos", v.hotdog.split(",")[-1].strip())
+                        hd_side = v.hotdog.split(",")[-1].strip()
+                        seek["seen"], seek["side"] = time.time(), hd_side   # where the hot dog is, every Cosmos answer
+                        happy("cosmos", hd_side)
             else:                                         # no cloud: the local detector is the only cat detector
                 th = per.threat(f)
                 if th.present: sighting("local detector (offline)")
@@ -151,17 +155,25 @@ def main():
                         state["maneuver"] = None
                     else:
                         cmd = Command(now(), PANIC_RUN_PWM, PANIC_RUN_PWM, "PANIC: running away")
-                else:                                       # happy: wiggle, then creep toward the hot dog
+                else:                                       # happy: wiggle, then go to the hot dog, searching if lost
+                    tn = time.time(); lost = tn - seek["seen"]
                     if th.present:                          # a cat interrupts the happiness
                         state["maneuver"] = None
-                    elif time.time() < t1:
-                        w = HAPPY_WIGGLE_PWM if int((time.time() - t0) / 0.2) % 2 == 0 else -HAPPY_WIGGLE_PWM
+                    elif tn < t1:
+                        w = HAPPY_WIGGLE_PWM if int((tn - t0) / 0.2) % 2 == 0 else -HAPPY_WIGGLE_PWM
                         cmd = Command(now(), w, -w, "HAPPY: wiggle")
-                    elif ultra is not None and ultra < 15:  # close enough to sniff it
-                        state["maneuver"] = None; cmd = Command(now(), 0, 0, "HAPPY: arrived at the hot dog")
+                    elif lost < SEEK_LOST_S:                # Cosmos sees it: steer toward its side
+                        sd = seek["side"]
+                        if sd == "left":    cmd = Command(now(), -SEEK_TURN, SEEK_TURN, "HAPPY: hot dog on the left, turning to it")
+                        elif sd == "right": cmd = Command(now(), SEEK_TURN, -SEEK_TURN, "HAPPY: hot dog on the right, turning to it")
+                        elif ultra is not None and ultra < 15:  # dead ahead and close: sniff it, stay put
+                            cmd = Command(now(), 0, 0, "HAPPY: at the hot dog")
+                        else:               cmd = Command(now(), SEEK_PWM, SEEK_PWM, "HAPPY: hot dog ahead, creeping to it")
+                    elif lost < SEEK_LOST_S + SEEK_SEARCH_S:  # lost it: turn slowly toward where it was last seen
+                        d = -1 if seek["side"] == "left" else 1
+                        cmd = Command(now(), SEEK_TURN * d, -SEEK_TURN * d, "HAPPY: looking for the hot dog (%s)" % ("left" if d < 0 else "right"))
                     else:
-                        steer = {"left": (-30, 30), "right": (30, -30)}.get(side, (0, 0))
-                        cmd = Command(now(), HAPPY_APPROACH_PWM + steer[0], HAPPY_APPROACH_PWM + steer[1], "HAPPY: creeping toward the hot dog")
+                        plog("hot dog search gave up after %.0f s" % SEEK_SEARCH_S); state["maneuver"] = None
             if state.get("paused"):                      # dashboard pause: wheels stop, perception and recording go on
                 cmd = cmd.__class__(**{**cmd.__dict__, "l": 0, "r": 0, "why": "paused"}) if hasattr(cmd, "__dict__") else cmd
             last_cmd = (cmd.l, cmd.r)
