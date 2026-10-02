@@ -21,8 +21,10 @@ VERDICT_PROMPT = ("This is one frame from a camera mounted 8 cm above the floor 
        "actually visible. First write one sentence saying what you see. Then answer: is a cat visible in this frame? "
        "If so, in which part of the frame (left, center or right)? Which part of the floor ahead is most open "
        "(left, center or right)? Is the robot boxed in, meaning walls or objects fill nearly the whole view close to the camera? "
+       "Is a hot dog (a sausage in a bun, real or toy) visible? If so, where? "
        "Reply ONLY with JSON: {\"see\": string, \"cat_visible\": true or false, \"cat_side\": \"left|center|right|none\", "
-       "\"open_dir\": \"left|center|right\", \"cornered\": true or false}")
+       "\"open_dir\": \"left|center|right\", \"cornered\": true or false, "
+       "\"hotdog_visible\": true or false, \"hotdog_side\": \"left|center|right|none\"}")
 PLAN_SYSTEM = ("You are the mode planner for a small robot that flees a cat. Modes: flee (cat seen, keep reflexes running), "
                "escape_corner (spin out of a corner first), patrol (no cat, wander), idle (stay). "
                "Reply ONLY with JSON {\"mode\": str, \"ttl_s\": int, \"reason\": str}.")
@@ -46,13 +48,15 @@ class Supervisor:
         ok, jpg = cv2.imencode(".jpg", cv2.resize(frame, (640, 480)), [cv2.IMWRITE_JPEG_QUALITY, 75])
         url = "data:image/jpeg;base64," + base64.b64encode(jpg.tobytes()).decode()
         t0 = time.time()
-        r = self.nv.chat.completions.create(model=NV_MODEL, max_tokens=120, temperature=0.2, messages=[{"role": "user", "content": [
+        r = self.nv.chat.completions.create(model=NV_MODEL, max_tokens=220, temperature=0.2, messages=[{"role": "user", "content": [
             {"type": "text", "text": VERDICT_PROMPT}, {"type": "image_url", "image_url": {"url": url}}]}])
         d = _json((r.choices[0].message.content or "").replace("```json", "").replace("```", ""))
         vis = d.get("cat_visible", False); vis = vis if isinstance(vis, bool) else str(vis).lower() == "true"
         v = Verdict(now(), bool(d.get("cornered", False)), str(d.get("open_dir", "center")),
                     ("visible, " + str(d.get("cat_side", "")).strip()) if vis else "none", clip, NV_MODEL)
         v.see = str(d.get("see", ""))[:200]
+        hd = d.get("hotdog_visible", False); hd = hd if isinstance(hd, bool) else str(hd).lower() == "true"
+        v.hotdog = ("visible, " + str(d.get("hotdog_side", "")).strip()) if hd else "none"
         v.latency_s = round(time.time() - t0, 2)
         return v
 

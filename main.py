@@ -84,11 +84,23 @@ def main():
         if t - last_panic_t[0] < PANIC_COOLDOWN:
             plog("new sighting (%s) but cooldown %.1fs left: no video" % (src, PANIC_COOLDOWN - (t - last_panic_t[0]))); return
         last_panic_t[0] = t; state["panic"] = t; state["panic_src"] = src
-        state["maneuver"] = (t, t + PANIC_SPIN_S, t + PANIC_SPIN_S + PANIC_RUN_S)   # spin 540, then run
+        state["maneuver"] = ("panic", t, t + PANIC_SPIN_S, t + PANIC_SPIN_S + PANIC_RUN_S, None)   # spin 540, then run
         plog("PANIC fired, video should play (%s)" % src)
         try: car.flash_red(1.5)
         except Exception as e: plog("flash failed: %s" % e)
         rec.event_raw('{"kind":"panic","t":%f}' % t)
+    last_happy_sight, last_happy_t = [0.0], [0.0]
+    HAPPY_WIGGLE_S, HAPPY_WIGGLE_PWM = 1.2, 170       # quick spins back and forth
+    HAPPY_APPROACH_S, HAPPY_APPROACH_PWM = 3.0, 90    # then a slow creep toward the hot dog
+    def happy(src, side):
+        t = time.time(); gap = t - last_happy_sight[0]; last_happy_sight[0] = t
+        if gap < EPISODE_GAP or t - last_happy_t[0] < PANIC_COOLDOWN: return
+        last_happy_t[0] = t; state["happy"] = t
+        state["maneuver"] = ("happy", t, t + HAPPY_WIGGLE_S, t + HAPPY_WIGGLE_S + HAPPY_APPROACH_S, side)
+        plog("HAPPY fired: hot dog %s, video should play (%s)" % (side, src))
+        try: car.lights(0, 255, 0)
+        except Exception as e: plog("green lights failed: %s" % e)
+        rec.event_raw('{"kind":"happy","t":%f}' % t)
     plog("agent started; cat detector: %s" % ("Cosmos only" if cosmos_only else "local YOLO (offline)"))
     t_end = time.time() + a.seconds if a.seconds else 1e18      # --seconds 0 runs until stopped
     try:
@@ -112,6 +124,8 @@ def main():
                     last_seen_verdict[0] = v.t
                     plog("cosmos: %s | %s" % (v.cat_intent, (v.see or "")[:80]))
                     if th.present: sighting("cosmos")
+                    elif getattr(v, "hotdog", "none").startswith("visible"):
+                        happy("cosmos", v.hotdog.split(",")[-1].strip())
             else:                                         # no cloud: the local detector is the only cat detector
                 th = per.threat(f)
                 if th.present: sighting("local detector (offline)")
@@ -120,13 +134,26 @@ def main():
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())
             cmd = reflex(th, fs, mode if a.cloud_steers else NARRATE, ultra, last, stuck)
             man = state.get("maneuver")
-            if man and time.time() < man[2]:
-                if time.time() < man[1]:
-                    cmd = Command(now(), PANIC_SPIN_PWM, -PANIC_SPIN_PWM, "PANIC: spinning 540")
-                elif ultra is not None and ultra < 25:      # wall ahead: stop running, let the reflex steer
-                    state["maneuver"] = None
-                else:
-                    cmd = Command(now(), PANIC_RUN_PWM, PANIC_RUN_PWM, "PANIC: running away")
+            if man and time.time() < man[3]:
+                kind, t0, t1, t2, side = man
+                if kind == "panic":
+                    if time.time() < t1:
+                        cmd = Command(now(), PANIC_SPIN_PWM, -PANIC_SPIN_PWM, "PANIC: spinning 540")
+                    elif ultra is not None and ultra < 25:  # wall ahead: stop running, let the reflex steer
+                        state["maneuver"] = None
+                    else:
+                        cmd = Command(now(), PANIC_RUN_PWM, PANIC_RUN_PWM, "PANIC: running away")
+                else:                                       # happy: wiggle, then creep toward the hot dog
+                    if th.present:                          # a cat interrupts the happiness
+                        state["maneuver"] = None
+                    elif time.time() < t1:
+                        w = HAPPY_WIGGLE_PWM if int((time.time() - t0) / 0.2) % 2 == 0 else -HAPPY_WIGGLE_PWM
+                        cmd = Command(now(), w, -w, "HAPPY: wiggle")
+                    elif ultra is not None and ultra < 15:  # close enough to sniff it
+                        state["maneuver"] = None; cmd = Command(now(), 0, 0, "HAPPY: arrived at the hot dog")
+                    else:
+                        steer = {"left": (-30, 30), "right": (30, -30)}.get(side, (0, 0))
+                        cmd = Command(now(), HAPPY_APPROACH_PWM + steer[0], HAPPY_APPROACH_PWM + steer[1], "HAPPY: creeping toward the hot dog")
             if state.get("paused"):                      # dashboard pause: wheels stop, perception and recording go on
                 cmd = cmd.__class__(**{**cmd.__dict__, "l": 0, "r": 0, "why": "paused"}) if hasattr(cmd, "__dict__") else cmd
             last_cmd = (cmd.l, cmd.r)
