@@ -29,7 +29,7 @@ LINK_BUDGET = 0.6             # use at most 60% of it, leaving room for the UNO'
 DRIVE_KEEPALIVE_S = 0.1       # resend an unchanged drive command at most 10 times a second
 ULTRA_PERIOD_S = 0.2          # ultrasonic polled 5 times a second
 ULTRA_FRESH_S = 0.6
-MIN_PWM = 70                  # below ~70 the TT motors stall on a hard floor (Elegoo tutorial: 25% duty "can't start";
+MIN_PWM = 60                  # below ~70 the TT motors stall on a hard floor (Elegoo tutorial: 25% duty "can't start";
                               # owner measurement: stall under 70). Non-zero speeds are lifted to at least this.
 
 class ElegooCar:
