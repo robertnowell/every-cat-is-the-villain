@@ -13,15 +13,20 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>catbot</title>
 .p{background:#1b1b1b;border:1px solid #333;border-radius:6px;padding:12px;margin-bottom:12px}.k{font:12px ui-monospace,monospace;letter-spacing:.08em;color:#8a8;text-transform:uppercase}
 .big{font-size:28px;font-weight:700}.mode-flee{color:#f6a}.mode-escape_corner{color:#fa4}.mode-patrol{color:#8cf}.mode-idle{color:#999}
 input{box-sizing:border-box;width:100%;padding:10px;font-size:16px;background:#111;color:#eee;border:1px solid #444;border-radius:6px}
-.clip{display:flex;gap:10px;margin-top:10px;align-items:flex-start}video{width:220px;border-radius:4px}small{color:#999}</style></head><body>
+.clip{display:flex;gap:10px;margin-top:10px;align-items:flex-start}video{width:220px;border-radius:4px}small{color:#999}.card{transition:background .15s,color .15s}
+.card.lit{background:#f2f2f2 !important;color:#111 !important}
+.card.lit .k{color:#111 !important}
+#catcard.lit{box-shadow:0 0 0 3px #f33}
+#dogcard.lit{box-shadow:0 0 0 3px #3c3}
+</style></head><body>
 <div id="start" style="position:fixed;inset:0;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;z-index:9">
  <button onclick="startDemo()" style="font-size:28px;padding:22px 40px;border-radius:12px;border:0;background:#f6a;color:#111;font-weight:700;cursor:pointer">Start the demo (with sound)</button></div>
 <div class="g"><div style="position:relative"><img src="/stream"><video id="panic" src="/panic.mp4" playsinline preload="auto" style="position:absolute;right:12px;bottom:104px;width:21%;aspect-ratio:9/16;object-fit:cover;background:#000;border:3px solid #f33;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.6);display:none;z-index:2"></video><video id="happy" src="/happy.mp4" playsinline preload="auto" style="position:absolute;left:12px;bottom:104px;width:30%;aspect-ratio:16/9;object-fit:cover;background:#000;border:3px solid #3c3;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.6);display:none;z-index:2"></video><div class="p" id="why"></div><button id="pause" onclick="togglePause()" title="Space bar also works" style="margin-top:8px;width:100%;padding:14px;border-radius:8px;border:0;background:#f5c542;color:#111;font-size:18px;font-weight:800;cursor:pointer">⏸ PAUSE ROBOT (space)</button></div>
 <div><div class="p"><div class="k">cloud planner says</div><div class="big" id="mode">idle</div><div id="reason"></div><small id="lat"></small></div>
 <div class="p" id="mapbox" style="display:none"><div class="k">the room, from above (simulator only) · blue robot, red cat</div><img id="map" style="margin-top:6px">
  <button onclick="releaseCat()" style="margin-top:8px;padding:8px 14px;border-radius:6px;border:0;background:#8cf;color:#111;font-weight:700;cursor:pointer">Release a new cat</button></div>
-<div class="p"><div class="k">cat</div><div id="threat"></div></div>
-<div class="p"><div class="k">hot dog</div><div id="hotdog"></div></div>
+<div class="p card" id="catcard"><div class="k">cat</div><div id="threat"></div></div>
+<div class="p card" id="dogcard"><div class="k">hot dog</div><div id="hotdog"></div></div>
 <div class="p"><div class="k">vision verdict</div><div id="verdict"></div></div>
 <div class="p"><div class="k">ask the memory</div><input id="q" placeholder="when did the cat last corner me?" onkeydown="if(event.key==='Enter')ask()"><div id="answer"></div><div id="clips"></div></div></div></div>
 <script>
@@ -43,7 +48,9 @@ async function tick(){const s=await (await fetch('/state')).json();
  document.getElementById('mode').textContent=s.mode.mode; document.getElementById('mode').className='big mode-'+s.mode.mode;
  document.getElementById('reason').textContent=s.mode.reason||''; document.getElementById('lat').textContent='verdict '+(s.verdict.latency_s||'-')+' s · planner '+(s.mode.latency_s||'-')+' s · loop '+(s.fps||0)+' fps';
  const t=s.threat; document.getElementById('threat').textContent=t.present?('bearing '+t.bearing.toFixed(0)+'° · proximity '+t.proximity.toFixed(2)+' · conf '+t.conf.toFixed(2)+' · track '+t.track):'no cat';
- const hd=(s.verdict&&s.verdict.hotdog)||'none'; document.getElementById('hotdog').textContent=hd.startsWith('visible')?('hot dog · '+hd.split(',').pop().trim()):'no hot dog';
+ const hd=(s.verdict&&s.verdict.hotdog)||'none';
+ document.getElementById('catcard').classList.toggle('lit', !!(s.threat&&s.threat.present));
+ document.getElementById('dogcard').classList.toggle('lit', hd.startsWith('visible')); document.getElementById('hotdog').textContent=hd.startsWith('visible')?('hot dog · '+hd.split(',').pop().trim()):'no hot dog';
  const v=s.verdict; document.getElementById('verdict').textContent=v.model?((v.see?('“'+v.see+'” '):'')+'· cat '+v.cat_intent+' · open '+v.open_dir+(v.cornered?' · boxed in':'')+'  ('+v.model.split('/').pop()+')'):'none yet';
  document.getElementById('why').textContent=s.paused?'PAUSED: wheels stopped, still watching':(s.command.why||''); showPause(s.paused);}
 setInterval(tick,500); tick();
