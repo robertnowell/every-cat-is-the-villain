@@ -69,7 +69,10 @@ class RelayMemory:
         import threading
         self.root, self.lock = root, threading.Lock()
         self.uploaded, self.inflight, self.questions = {}, {}, {}
-        self.rows = []                                   # the dashboard reads this to know whether anything is indexed yet
+        self.state = os.path.join(root, "relay_uploaded.json")   # survives agent restarts, so clips are not uploaded twice
+        try: self.uploaded = {k: v for k, v in json.load(open(self.state)).items() if os.path.exists(v["clip"])}
+        except Exception: pass
+        self.rows = list(self.uploaded.values())        # the dashboard reads this to know whether anything is indexed yet
 
     def pending(self):
         now = time.time()
@@ -88,6 +91,8 @@ class RelayMemory:
                 self.uploaded[name] = {"clip": os.path.join(self.root, name), "t": os.path.getmtime(os.path.join(self.root, name)),
                                        "object_key": d.get("object_key"), "caption": ""}
                 self.rows = list(self.uploaded.values())
+                try: json.dump(self.uploaded, open(self.state, "w"))
+                except Exception: pass
 
     def answer(self, d):
         with self.lock:
@@ -106,7 +111,8 @@ class RelayMemory:
             if a is not None:
                 clips = []
                 for c in a.get("clips", []):
-                    name = c.get("clip")
+                    name = c.get("clip") or next((n for n, u in self.uploaded.items()
+                                                  if u.get("object_key") and u["object_key"] in str(c.get("source"))), None)
                     local = os.path.join(self.root, name) if name and os.path.exists(os.path.join(self.root, name)) else None
                     clips.append({"clip": local or (c.get("source") or ""), "t": os.path.getmtime(local) if local else 0,
                                   "score": round(float(c.get("score") or 0), 3), "caption": c.get("caption", "")})

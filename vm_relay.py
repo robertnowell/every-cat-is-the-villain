@@ -44,37 +44,58 @@ def upload(name, data):
     h = auth(); h["Content-Type"] = f"multipart/form-data; boundary={b}"
     return json.loads(http("POST", BACKEND + "/api/v1/videos/upload", b"".join(parts), h, 180))
 
-def ask(q):
+def post(path, body):
     h = auth(); h["Content-Type"] = "application/json"
-    a = json.loads(http("POST", BACKEND + "/api/v1/agent/ask", json.dumps({"question": q, "top_k": 8}).encode(), h, 120))
-    s = json.loads(http("POST", BACKEND + "/api/v1/search", json.dumps({"query": q, "top_k": 8, "llm_top_n": 3, "min_similarity": 0.2,
-                         "metadata_filters": {"camera_id": "catbot-cam"}}).encode(), h, 120))
-    return a, s
+    try:
+        return json.loads(http("POST", BACKEND + path, json.dumps(body).encode(), h, 150)), None
+    except urllib.error.HTTPError as e:
+        return None, f"{path} {e.code}: {e.read()[:200].decode(errors='replace')}"
+    except Exception as e:
+        return None, f"{path}: {str(e)[:200]}"
+
+def ask(q):
+    """Filtered search-and-answer first (only our robot's camera), then plain agent/ask, then search's own synthesis."""
+    flt = {"query": q, "top_k": 10, "llm_top_n": 3, "min_similarity": 0.2, "metadata_filters": {"camera_id": "catbot-cam"}}
+    errs, answer, chunks = [], "", []
+    r, e = post("/api/v1/agent/search-and-answer", flt)
+    if r: answer, chunks = r.get("answer", ""), (r.get("evidence") or {}).get("chunks") or []
+    else: errs.append(e)
+    if not answer:
+        r, e = post("/api/v1/agent/ask", {"question": q, "top_k": 10})
+        if r: answer = r.get("answer", "")
+        else: errs.append(e)
+    if not chunks or not answer:
+        r, e = post("/api/v1/search", flt)
+        if r:
+            chunks = chunks or r.get("chunk_results") or r.get("results") or []
+            answer = answer or (r.get("llm_synthesis") or {}).get("response", "")
+        else: errs.append(e)
+    if errs: print("ask errors:", errs, flush=True)
+    return answer or ("VAST had no answer. " + " | ".join(errs)[:300]), chunks
 
 print("relay up: laptop", LAPTOP, "-> VAST", BACKEND, flush=True)
-keys = {}                                             # object_key -> clip name on the laptop
+KEYS = "relay_keys.json"
+try: keys = json.load(open(KEYS))                       # object_key -> clip name on the laptop
+except Exception: keys = {}
 while True:
     try:
         p = laptop("/relay/pending")
         for name in p.get("clips", [])[:3]:
             data = http("GET", f"{LAPTOP}/relay/clip/{name}?token={TOKEN}")
             r = upload(name, data); ok = bool(r.get("success"))
-            if ok: keys[r.get("object_key", "")] = name
+            if ok: keys[r.get("object_key", "")] = name; json.dump(keys, open(KEYS, "w"))
             laptop("/relay/ack", {"clip": name, "ok": ok, "object_key": r.get("object_key"), "error": None if ok else str(r)[:200]})
             print("uploaded", name, ok, r.get("object_key"), flush=True)
         for q in p.get("questions", []):
-            try:
-                a, s = ask(q["q"]); clips = []
-                for res in (s.get("results") or [])[:4]:
-                    src = json.dumps(res)
-                    mine = next((n for k, n in keys.items() if k and k.split("/")[-1].split("_", 1)[-1] in src), None) or \
-                           next((n for n in set(keys.values()) if n and n in src), None)
-                    clips.append({"clip": mine, "caption": (res.get("reasoning_content") or res.get("caption") or res.get("description") or "")[:300],
-                                  "score": res.get("similarity", res.get("score")), "source": res.get("source") or res.get("original_video")})
-                laptop("/relay/answer", {"id": q["id"], "answer": a.get("answer", ""), "evidence": a.get("evidence"), "clips": clips, "backend": "vast"})
-                print("answered", q["q"][:60], flush=True)
-            except Exception as e:
-                laptop("/relay/answer", {"id": q["id"], "answer": "VAST error: " + str(e)[:200], "clips": [], "backend": "vast"})
+            answer, chunks = ask(q["q"]); clips = []
+            for c in chunks[:4]:
+                src = json.dumps(c)
+                mine = next((n for k, n in keys.items() if k and k in src), None)
+                clips.append({"clip": mine, "caption": (c.get("reasoning_content") or c.get("caption") or "")[:300],
+                              "score": c.get("similarity_score", c.get("similarity")), "source": c.get("original_video") or c.get("source"),
+                              "start": c.get("best_match_start_sec")})
+            laptop("/relay/answer", {"id": q["id"], "answer": answer, "clips": clips, "backend": "vast"})
+            print("answered", q["q"][:60], "|", answer[:80], flush=True)
     except Exception as e:
         print("relay loop:", str(e)[:200], flush=True)
     time.sleep(3)
