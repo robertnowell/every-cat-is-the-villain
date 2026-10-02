@@ -33,7 +33,8 @@ os.makedirs("demo_logs", exist_ok=True)
 say("1/9 Network: Mac on the car's Wi-Fi, internet through the iPhone")
 if A.host == "192.168.4.1":
     ssid = sh("networksetup -getairportnetwork en0") + sh("ipconfig getsummary en0 | grep ' SSID'")
-    on_car = "ELEGOO" in ssid
+    # macOS 15+ redacts the SSID without location permission, so a car that answers ping counts too
+    on_car = "ELEGOO" in ssid or os.system("ping -c1 -t2 %s >/dev/null 2>&1" % A.host) == 0
     ok("wifi on ELEGOO network", on_car, ssid=ssid.strip()[:80])
     if not on_car: print("  -> System Settings > Wi-Fi > join ELEGOO-xxxxxxxx. Close the Elegoo phone app: one client only.")
     rt = sh("route -n get 192.168.4.1"); iface = re.search(r"interface: (\S+)", rt)
@@ -71,16 +72,25 @@ try: hb = s.recv(64)
 except socket.timeout: hb = b""
 ok("heartbeat received", b"{Heartbeat}" in hb, raw=hb.decode(errors="ignore")[:40])
 if b"{Heartbeat}" in hb: s.sendall(b"{Heartbeat}")
-def send(obj): s.sendall(json.dumps(obj, separators=(",", ":")).encode() + b"\n")
+# The ESP32 drops a client that misses ~3 heartbeats, and the prompts below wait on a human, so a background
+# reader echoes every heartbeat and buffers everything else for drain().
+import threading
+_lock, _buf = threading.Lock(), bytearray()
+def _reader():
+    s.settimeout(None)
+    while True:
+        try: d = s.recv(256)
+        except OSError: return
+        if not d: return
+        if b"{Heartbeat}" in d:
+            with _lock: s.sendall(b"{Heartbeat}")
+        with _lock: _buf.extend(d)
+threading.Thread(target=_reader, daemon=True).start()
+def send(obj):
+    with _lock: s.sendall(json.dumps(obj, separators=(",", ":")).encode() + b"\n")
 def drain(t=0.3):
-    s.settimeout(t); out = b""
-    try:
-        while True:
-            d = s.recv(256)
-            if not d: break
-            out += d
-            if b"{Heartbeat}" in d: s.sendall(b"{Heartbeat}")
-    except socket.timeout: pass
+    time.sleep(t)
+    with _lock: out = bytes(_buf); _buf.clear()
     return out.decode(errors="ignore")
 
 # 4. ultrasonic and firmware variant
