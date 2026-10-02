@@ -32,9 +32,10 @@ document.addEventListener('keydown',e=>{ if(e.code==='Space' && document.activeE
 function releaseCat(){ if(SIM) fetch(SIM+'/reset'); }
 if(SIM){document.getElementById('mapbox').style.display='block'; document.getElementById('map').src=SIM+'/map';}
 function panic(){const v=document.getElementById('panic'); v.style.display='block'; v.currentTime=0; v.muted=false;
- v.play().catch(()=>{v.muted=true; v.play();}); v.onended=()=>{v.style.display='none';};}
+ v.play().then(()=>blog('video playing with sound')).catch(e=>{blog('play with sound BLOCKED ('+e.name+'), retrying muted'); v.muted=true; v.play().then(()=>blog('video playing muted')).catch(e2=>blog('muted play failed too: '+e2.name));}); v.onended=()=>{v.style.display='none';};}
+function blog(m){ fetch('/log?m='+encodeURIComponent(m)); }
 async function tick(){const s=await (await fetch('/state')).json();
- if(s.panic && s.panic!==lastPanic){ if(lastPanic!==null) panic(); lastPanic=s.panic; } else if(lastPanic===null) lastPanic=s.panic||0;
+ if(s.panic && s.panic!==lastPanic){ if(lastPanic!==null){ blog('browser got panic '+s.panic.toFixed(1)); panic(); } else blog('page loaded; skipping old panic '+s.panic.toFixed(1)); lastPanic=s.panic; } else if(lastPanic===null) lastPanic=s.panic||0;
  document.getElementById('mode').textContent=s.mode.mode; document.getElementById('mode').className='big mode-'+s.mode.mode;
  document.getElementById('reason').textContent=s.mode.reason||''; document.getElementById('lat').textContent='verdict '+(s.verdict.latency_s||'-')+' s · planner '+(s.mode.latency_s||'-')+' s · loop '+(s.fps||0)+' fps';
  const t=s.threat; document.getElementById('threat').textContent=t.present?('bearing '+t.bearing.toFixed(0)+'° · proximity '+t.proximity.toFixed(2)+' · conf '+t.conf.toFixed(2)+' · track '+t.track):'no cat';
@@ -65,6 +66,12 @@ class Dash:
             local = os.path.join(here, "assets", "local", "panic_run_morty.mp4")   # untracked; see README
             default = local if os.path.exists(local) else os.path.join(here, "assets", "panic.mp4")
             return FileResponse(os.environ.get("PANIC_VIDEO", default), media_type="video/mp4")
+        @app.get("/log")
+        def blog(m: str = ""):
+            os.makedirs("demo_logs", exist_ok=True)
+            with open("demo_logs/panic.log", "a") as fh: fh.write("%s BROWSER %s\n" % (time.strftime("%H:%M:%S"), m[:200]))
+            return JSONResponse({"ok": True})
+
         @app.post("/pause")
         def pause():
             self.state["paused"] = not self.state.get("paused"); return JSONResponse({"paused": self.state["paused"]})

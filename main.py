@@ -29,7 +29,6 @@ def main():
     sup = None if a.no_cloud else __import__("supervisor").Supervisor()
     mode, last_sup, recent = Mode(now(), "idle", 1e9), 0.0, collections.deque(maxlen=12)
     NARRATE = Mode(now(), "idle", 1e9)             # what the reflex sees when the cloud only narrates
-    confirming = [False]
     state = {"mode": mode, "paused": not a.sim and a.dash}   # the real car waits for Resume on the dashboard
     if a.dash:
         from dash import Dash, annotate
@@ -68,8 +67,24 @@ def main():
     last = None
     busy = [False]
     stall, last_cmd = StallDetector(), (0, 0)
-    prev_present, last_panic = False, 0.0
-    PANIC_COOLDOWN = 5.0
+    prev_present = False
+    PANIC_COOLDOWN, EPISODE_GAP = 6.0, 4.0           # a new sighting after 4 s without one is a new cat appearance
+    cosmos_only = bool(sup)                          # with the cloud on, Cosmos is the only cat detector
+    last_seen_verdict, last_sight, last_panic_t = [0.0], [0.0], [0.0]
+    os.makedirs("demo_logs", exist_ok=True); panic_log = open("demo_logs/panic.log", "a", buffering=1)
+    def plog(msg):
+        line = "%s %s" % (time.strftime("%H:%M:%S"), msg); panic_log.write(line + "\n"); print("PANICLOG", line)
+    def sighting(src):
+        t = time.time(); gap = t - last_sight[0]; last_sight[0] = t
+        if gap < EPISODE_GAP: return                 # same appearance, already handled
+        if t - last_panic_t[0] < PANIC_COOLDOWN:
+            plog("new sighting (%s) but cooldown %.1fs left: no video" % (src, PANIC_COOLDOWN - (t - last_panic_t[0]))); return
+        last_panic_t[0] = t; state["panic"] = t; state["panic_src"] = src
+        plog("PANIC fired, video should play (%s)" % src)
+        try: car.flash_red(1.5)
+        except Exception as e: plog("flash failed: %s" % e)
+        rec.event_raw('{"kind":"panic","t":%f}' % t)
+    plog("agent started; cat detector: %s" % ("Cosmos only" if cosmos_only else "local YOLO (offline)"))
     t_end = time.time() + a.seconds if a.seconds else 1e18      # --seconds 0 runs until stopped
     try:
         while time.time() < t_end:
@@ -79,32 +94,22 @@ def main():
             if hasattr(car, "frame_age") and car.frame_age() > 0.5:      # video frozen: never drive blind
                 car.stop(); time.sleep(0.05); continue
             ultra = car.ultrasonic_cm() if not a.sim else None
-            th, fs = per.threat(f), per.free_space(f, ultra)
-            v = state.get("verdict")                     # Cosmos saw a cat in the last 2.5 s and YOLO did not: trust Cosmos
-            if not th.present and v is not None and v.cat_intent.startswith("visible") and time.time() - v.t < 2.5:
-                side = v.cat_intent.split(",")[-1].strip()
-                th = Threat(now(), True, None, {"left": -20.0, "right": 20.0}.get(side, 0.0), 0.3, 0.5, None, kind="threat")
-            if th.present and not prev_present and time.time() - last_panic > PANIC_COOLDOWN and not confirming[0]:
-                def fire(src):
-                    nonlocal_t = time.time(); state["panic"] = nonlocal_t           # dashboard plays the panic video
-                    try: car.flash_red(1.5)                                          # car lights go red
-                    except Exception as e: print("flash failed:", e)
-                    rec.event_raw('{"kind":"panic","t":%f,"confirmed_by":"%s"}' % (nonlocal_t, src))
-                last_panic = time.time()
-                if sup and not a.sim:                      # real car: Cosmos confirms the detector before we panic
-                    confirming[0] = True
-                    def confirm(snap=f.copy()):
-                        try:
-                            v = sup.verdict(snap)
-                            print("PANIC CHECK cosmos:", v.cat_intent, "|", (v.see or "")[:80])
-                            if v.cat_intent.startswith("visible"): fire("cosmos")
-                            else: rec.event_raw('{"kind":"panic_rejected","t":%f}' % time.time())
-                        except Exception as e:
-                            print("panic check failed, panicking anyway:", e); fire("detector")
-                        finally: confirming[0] = False
-                    threading.Thread(target=confirm, daemon=True).start()
+            fs = per.free_space(f, ultra)
+            v = state.get("verdict")
+            if cosmos_only:                               # ONE cat detector: Cosmos. Its latest verdict, if under 2.5 s old.
+                fresh = v is not None and time.time() - v.t < 2.5
+                if fresh and v.cat_intent.startswith("visible"):
+                    side = v.cat_intent.split(",")[-1].strip()
+                    th = Threat(now(), True, None, {"left": -20.0, "right": 20.0}.get(side, 0.0), 0.3, 1.0, None, kind="threat")
                 else:
-                    fire("detector")
+                    th = Threat(now(), False)
+                if fresh and v.t != last_seen_verdict[0]:
+                    last_seen_verdict[0] = v.t
+                    plog("cosmos: %s | %s" % (v.cat_intent, (v.see or "")[:80]))
+                    if th.present: sighting("cosmos")
+            else:                                         # no cloud: the local detector is the only cat detector
+                th = per.threat(f)
+                if th.present: sighting("local detector (offline)")
             prev_present = th.present
             if th.present: last = th
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())
