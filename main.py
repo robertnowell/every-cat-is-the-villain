@@ -29,6 +29,7 @@ def main():
     sup = None if a.no_cloud else __import__("supervisor").Supervisor()
     mode, last_sup, recent = Mode(now(), "idle", 1e9), 0.0, collections.deque(maxlen=12)
     NARRATE = Mode(now(), "idle", 1e9)             # what the reflex sees when the cloud only narrates
+    confirming = [False]
     state = {"mode": mode, "paused": not a.sim and a.dash}   # the real car waits for Resume on the dashboard
     if a.dash:
         from dash import Dash, annotate
@@ -83,11 +84,27 @@ def main():
             if not th.present and v is not None and v.cat_intent.startswith("visible") and time.time() - v.t < 2.5:
                 side = v.cat_intent.split(",")[-1].strip()
                 th = Threat(now(), True, None, {"left": -20.0, "right": 20.0}.get(side, 0.0), 0.3, 0.5, None, kind="threat")
-            if th.present and not prev_present and time.time() - last_panic > PANIC_COOLDOWN:
-                last_panic = time.time(); state["panic"] = last_panic       # dashboard plays the panic video
-                try: car.flash_red(1.5)                                      # car lights go red
-                except Exception as e: print("flash failed:", e)
-                rec.event_raw('{"kind":"panic","t":%f}' % last_panic)
+            if th.present and not prev_present and time.time() - last_panic > PANIC_COOLDOWN and not confirming[0]:
+                def fire(src):
+                    nonlocal_t = time.time(); state["panic"] = nonlocal_t           # dashboard plays the panic video
+                    try: car.flash_red(1.5)                                          # car lights go red
+                    except Exception as e: print("flash failed:", e)
+                    rec.event_raw('{"kind":"panic","t":%f,"confirmed_by":"%s"}' % (nonlocal_t, src))
+                last_panic = time.time()
+                if sup and not a.sim:                      # real car: Cosmos confirms the detector before we panic
+                    confirming[0] = True
+                    def confirm(snap=f.copy()):
+                        try:
+                            v = sup.verdict(snap)
+                            print("PANIC CHECK cosmos:", v.cat_intent, "|", (v.see or "")[:80])
+                            if v.cat_intent.startswith("visible"): fire("cosmos")
+                            else: rec.event_raw('{"kind":"panic_rejected","t":%f}' % time.time())
+                        except Exception as e:
+                            print("panic check failed, panicking anyway:", e); fire("detector")
+                        finally: confirming[0] = False
+                    threading.Thread(target=confirm, daemon=True).start()
+                else:
+                    fire("detector")
             prev_present = th.present
             if th.present: last = th
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())

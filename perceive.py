@@ -37,7 +37,7 @@ class Perceiver:
 
     def threat(self, frame) -> Threat:
         h, w = frame.shape[:2]
-        r = self.model.track(self._prep(frame), classes=self.classes, conf=self.conf, device=self.device,
+        r = self.model.track(self._prep(frame), classes=self.classes + ([0] if len(self.classes) > 1 else []), conf=self.conf, device=self.device,
                              persist=True, verbose=False, tracker="bytetrack.yaml")[0]
         if r.boxes is None or len(r.boxes) == 0:
             self._recent.append(False); self._hits = sum(self._recent)
@@ -50,7 +50,14 @@ class Perceiver:
         if len(self.classes) > 1:                          # cat-like mode: per-class floors, drop frame-filling blobs
             cls = r.boxes.cls.cpu().numpy().astype(int)
             area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) / float(w * h)
-            keep = [k for k in range(len(boxes)) if confs[k] >= MIN_CONF.get(cls[k], 1.0) and area[k] < MAX_AREA]
+            people = [boxes[k] for k in range(len(boxes)) if cls[k] == 0 and confs[k] >= 0.3]
+            def on_person(b):                              # an arm or a jacket read as "cat" sits inside a person box
+                for p in people:
+                    ix = max(0, min(b[2], p[2]) - max(b[0], p[0])); iy = max(0, min(b[3], p[3]) - max(b[1], p[1]))
+                    if ix * iy > 0.6 * (b[2] - b[0]) * (b[3] - b[1]): return True
+                return False
+            keep = [k for k in range(len(boxes)) if cls[k] != 0 and confs[k] >= MIN_CONF.get(cls[k], 1.0)
+                    and area[k] < MAX_AREA and not on_person(boxes[k])]
             if not keep:
                 self._recent.append(False); self._hits = sum(self._recent)
                 return Threat(now(), False)
