@@ -1,7 +1,7 @@
 """catbot: run the loop. --sim video.mp4 replaces the car. --no-cloud skips the supervisor."""
 import argparse, time, collections, threading, json, os
 import cv2
-from shapes import Mode, Threat, FreeSpace, to_json, now
+from shapes import Mode, Threat, FreeSpace, Command, to_json, now
 from perceive import Perceiver, StallDetector, CAT_LIKE
 from reflex import reflex
 from recorder import Recorder
@@ -68,7 +68,11 @@ def main():
     busy = [False]
     stall, last_cmd = StallDetector(), (0, 0)
     prev_present = False
-    PANIC_COOLDOWN, EPISODE_GAP = 6.0, 4.0           # a new sighting after 4 s without one is a new cat appearance
+    PANIC_COOLDOWN, EPISODE_GAP = 6.0, 4.0
+    # Panic maneuver: spin ~540 degrees (a full lap plus a half turn, ending facing away), then run straight.
+    # Time-based; PANIC_SPIN_S is the time for 540 degrees at PANIC_SPIN_PWM on this floor (tune by eye).
+    PANIC_SPIN_PWM, PANIC_SPIN_S = int(os.environ.get("PANIC_SPIN_PWM", 200)), float(os.environ.get("PANIC_SPIN_S", 1.5))
+    PANIC_RUN_PWM, PANIC_RUN_S = int(os.environ.get("PANIC_RUN_PWM", 200)), float(os.environ.get("PANIC_RUN_S", 1.5))           # a new sighting after 4 s without one is a new cat appearance
     cosmos_only = bool(sup)                          # with the cloud on, Cosmos is the only cat detector
     last_seen_verdict, last_sight, last_panic_t = [0.0], [0.0], [0.0]
     os.makedirs("demo_logs", exist_ok=True); panic_log = open("demo_logs/panic.log", "a", buffering=1)
@@ -80,6 +84,7 @@ def main():
         if t - last_panic_t[0] < PANIC_COOLDOWN:
             plog("new sighting (%s) but cooldown %.1fs left: no video" % (src, PANIC_COOLDOWN - (t - last_panic_t[0]))); return
         last_panic_t[0] = t; state["panic"] = t; state["panic_src"] = src
+        state["maneuver"] = (t, t + PANIC_SPIN_S, t + PANIC_SPIN_S + PANIC_RUN_S)   # spin 540, then run
         plog("PANIC fired, video should play (%s)" % src)
         try: car.flash_red(1.5)
         except Exception as e: plog("flash failed: %s" % e)
@@ -114,6 +119,14 @@ def main():
             if th.present: last = th
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())
             cmd = reflex(th, fs, mode if a.cloud_steers else NARRATE, ultra, last, stuck)
+            man = state.get("maneuver")
+            if man and time.time() < man[2]:
+                if time.time() < man[1]:
+                    cmd = Command(now(), PANIC_SPIN_PWM, -PANIC_SPIN_PWM, "PANIC: spinning 540")
+                elif ultra is not None and ultra < 25:      # wall ahead: stop running, let the reflex steer
+                    state["maneuver"] = None
+                else:
+                    cmd = Command(now(), PANIC_RUN_PWM, PANIC_RUN_PWM, "PANIC: running away")
             if state.get("paused"):                      # dashboard pause: wheels stop, perception and recording go on
                 cmd = cmd.__class__(**{**cmd.__dict__, "l": 0, "r": 0, "why": "paused"}) if hasattr(cmd, "__dict__") else cmd
             last_cmd = (cmd.l, cmd.r)
