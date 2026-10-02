@@ -74,7 +74,7 @@ def main():
     PANIC_SPIN_PWM, PANIC_SPIN_S = int(os.environ.get("PANIC_SPIN_PWM", 200)), float(os.environ.get("PANIC_SPIN_S", 1.5))
     PANIC_RUN_PWM, PANIC_RUN_S = int(os.environ.get("PANIC_RUN_PWM", 255)), float(os.environ.get("PANIC_RUN_S", 1.5))
     # On Resume: one slow full circle to look around before patrolling (time-based; tune PAN_S by eye)
-    PAN_PWM, PAN_S = int(os.environ.get("PAN_PWM", 100)), float(os.environ.get("PAN_S", 4.0))           # a new sighting after 4 s without one is a new cat appearance
+    PAN_PWM, PAN_S = int(os.environ.get("PAN_PWM", 70)), float(os.environ.get("PAN_S", 6.0))   # 70 = slowest that turns (MIN_PWM); 6 s keeps a full circle           # a new sighting after 4 s without one is a new cat appearance
     cosmos_only = bool(sup)                          # with the cloud on, Cosmos is the only cat detector
     last_seen_verdict, last_sight, last_panic_t = [0.0], [0.0], [0.0]
     os.makedirs("demo_logs", exist_ok=True); panic_log = open("demo_logs/panic.log", "a", buffering=1)
