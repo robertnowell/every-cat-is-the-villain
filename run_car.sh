@@ -12,8 +12,10 @@ if [ "${RELAY:-0}" = "1" ]; then
   echo "curl -fsS '$URL/relay/script?token=$RELAY_TOKEN' -o vm_relay.py && python3 vm_relay.py $URL $RELAY_TOKEN" > demo_logs/vm_command.txt
   echo "VAST relay: event-machine command saved to demo_logs/vm_command.txt"
 fi
+CS=$(command -v claude-secrets || ls ~/.claude/plugins/cache/claude-secrets-marketplace/claude-secrets/*/bin/claude-secrets 2>/dev/null | tail -1)
+[ -x "$CS" ] || { echo "claude-secrets not found"; exit 1; }
 echo "Starting in 3 s: THE WHEELS WILL MOVE."; sleep 3
 COSMOS_BASE=${COSMOS_BASE:-http://166.19.38.112:8001/v1} COSMOS_MODEL=${COSMOS_MODEL:-nvidia/cosmos3-nano-reasoner} \
 MEMORY_BACKEND=$MEMORY_BACKEND RELAY_TOKEN=$RELAY_TOKEN \
-claude-secrets run --timeout 86400 --inject NVIDIA_API_KEY=NVIDIA_API_KEY --inject WANDB_API_KEY=WANDB_API_KEY --inject COSMOS_API_KEY=COSMOS_API_KEY -- \
+"$CS" run --timeout 86400 --inject NVIDIA_API_KEY=NVIDIA_API_KEY --inject WANDB_API_KEY=WANDB_API_KEY --inject COSMOS_API_KEY=COSMOS_API_KEY -- \
   .venv/bin/python main.py --host 192.168.4.1 --dash --seconds 0 --every 3 "$@"
