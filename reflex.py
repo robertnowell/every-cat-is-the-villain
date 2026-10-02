@@ -31,13 +31,14 @@ _blk = {"since": None, "dodge_until": 0.0, "dir": 1}
 
 # ---- wandering: the no-cat behaviour. Drive; if a wall is close, turn a random way for a random moment ----
 import random as _random
-WANDER_SPEED, WANDER_WALL_CM = 130, 35
+WANDER_SPEED, WANDER_WALL_CM = 70, 35      # patrol at half the old 130 (70 is the slowest that moves it), so the escape looks fast
+WANDER_TURN = 100                          # patrol turns, half the escape spin
 _wander = {"turn_until": 0.0, "dir": 1}
 NO_CAT = "wander"        # "wander" (default) or "clear_air" (spin-and-look)
 
 def wander(free: FreeSpace, ultra_cm, t: float) -> Command:
     if t < _wander["turn_until"]:
-        d = _wander["dir"]; return Command(t, SPIN * d, -SPIN * d, "wandering: turning %s" % ("right" if d > 0 else "left"))
+        d = _wander["dir"]; return Command(t, WANDER_TURN * d, -WANDER_TURN * d, "wandering: turning %s" % ("right" if d > 0 else "left"))
     if (ultra_cm is not None and ultra_cm < WANDER_WALL_CM) or free.center < 0.3:
         _wander.update(dir=_random.choice((-1, 1)), turn_until=t + _random.uniform(0.3, 1.0))
         d = _wander["dir"]; return Command(t, SPIN * d, -SPIN * d, "wall ahead: turning %s" % ("right" if d > 0 else "left"))

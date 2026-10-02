@@ -47,7 +47,7 @@ def main():
                     except Exception as e: print("ingest skipped:", e)
                     time.sleep(8)
             threading.Thread(target=ingest_loop, daemon=True).start()
-        Dash(state, mem).start(); print("dash on http://localhost:8000")
+        port = int(os.environ.get("DASH_PORT", 8000)); Dash(state, mem, port=port).start(); print("dash on http://localhost:%d" % port)
         if a.demo_video:
             import numpy as np
             stamps = []; state["demo_stamps"] = stamps
@@ -72,7 +72,9 @@ def main():
     # Panic maneuver: spin ~540 degrees (a full lap plus a half turn, ending facing away), then run straight.
     # Time-based; PANIC_SPIN_S is the time for 540 degrees at PANIC_SPIN_PWM on this floor (tune by eye).
     PANIC_SPIN_PWM, PANIC_SPIN_S = int(os.environ.get("PANIC_SPIN_PWM", 200)), float(os.environ.get("PANIC_SPIN_S", 1.5))
-    PANIC_RUN_PWM, PANIC_RUN_S = int(os.environ.get("PANIC_RUN_PWM", 200)), float(os.environ.get("PANIC_RUN_S", 1.5))           # a new sighting after 4 s without one is a new cat appearance
+    PANIC_RUN_PWM, PANIC_RUN_S = int(os.environ.get("PANIC_RUN_PWM", 255)), float(os.environ.get("PANIC_RUN_S", 1.5))
+    # On Resume: one slow full circle to look around before patrolling (time-based; tune PAN_S by eye)
+    PAN_PWM, PAN_S = int(os.environ.get("PAN_PWM", 100)), float(os.environ.get("PAN_S", 4.0))           # a new sighting after 4 s without one is a new cat appearance
     cosmos_only = bool(sup)                          # with the cloud on, Cosmos is the only cat detector
     last_seen_verdict, last_sight, last_panic_t = [0.0], [0.0], [0.0]
     os.makedirs("demo_logs", exist_ok=True); panic_log = open("demo_logs/panic.log", "a", buffering=1)
@@ -83,7 +85,7 @@ def main():
         if gap < EPISODE_GAP: return                 # same appearance, already handled
         if t - last_panic_t[0] < PANIC_COOLDOWN:
             plog("new sighting (%s) but cooldown %.1fs left: no video" % (src, PANIC_COOLDOWN - (t - last_panic_t[0]))); return
-        last_panic_t[0] = t; state["panic"] = t; state["panic_src"] = src
+        last_panic_t[0] = t; state["panic"] = t; state["panic_src"] = src; state["pan_from"] = None
         state["maneuver"] = ("panic", t, t + PANIC_SPIN_S, t + PANIC_SPIN_S + PANIC_RUN_S, None)   # spin 540, then run
         plog("PANIC fired, video should play (%s)" % src)
         try: car.flash_red(1.5)
@@ -95,7 +97,7 @@ def main():
     def happy(src, side):
         t = time.time(); gap = t - last_happy_sight[0]; last_happy_sight[0] = t
         if gap < EPISODE_GAP or t - last_happy_t[0] < PANIC_COOLDOWN: return
-        last_happy_t[0] = t; state["happy"] = t
+        last_happy_t[0] = t; state["happy"] = t; state["pan_from"] = None
         state["maneuver"] = ("happy", t, t + HAPPY_WIGGLE_S, t + HAPPY_WIGGLE_S + HAPPY_APPROACH_S, side)
         plog("HAPPY fired: hot dog %s, video should play (%s)" % (side, src))
         try: car.lights(0, 255, 0)
@@ -134,6 +136,12 @@ def main():
             stuck = stall.update(f, last_cmd[0] > 0 and last_cmd[1] > 0, time.time())
             cmd = reflex(th, fs, mode if a.cloud_steers else NARRATE, ultra, last, stuck)
             man = state.get("maneuver")
+            pan_from = state.get("pan_from")
+            if pan_from and not (man and time.time() < man[3]):
+                if time.time() - pan_from < PAN_S:
+                    cmd = Command(now(), PAN_PWM, -PAN_PWM, "looking around (%.0f%%)" % (100 * (time.time() - pan_from) / PAN_S))
+                else:
+                    state["pan_from"] = None
             if man and time.time() < man[3]:
                 kind, t0, t1, t2, side = man
                 if kind == "panic":

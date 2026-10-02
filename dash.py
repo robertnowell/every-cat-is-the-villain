@@ -90,7 +90,9 @@ class Dash:
 
         @app.post("/pause")
         def pause():
-            self.state["paused"] = not self.state.get("paused"); return JSONResponse({"paused": self.state["paused"]})
+            self.state["paused"] = not self.state.get("paused")
+            if not self.state["paused"]: self.state["pan_from"] = time.time()   # every Resume starts with a slow look-around
+            return JSONResponse({"paused": self.state["paused"]})
 
         @app.get("/stream")
         def stream():
