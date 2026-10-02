@@ -112,7 +112,7 @@ if not A.yes:
 # 5. wheels up
 say("5/9 Wheels up: lift the car so the wheels spin freely")
 ask("  Wheels off the ground? Press Enter")
-tests = [("left wheels forward", {"H": "d", "N": 4, "D1": 150, "D2": 0}), ("right wheels forward", {"H": "d", "N": 4, "D1": 0, "D2": 150}),
+tests = [("left wheels forward", {"H": "d", "N": 4, "D1": 0, "D2": 150}), ("right wheels forward", {"H": "d", "N": 4, "D1": 150, "D2": 0}),
          ("both forward", {"H": "d", "N": 4, "D1": 150, "D2": 150}), ("both backward", {"H": "m", "N": 3, "D1": 4, "D2": 150}),
          ("spin left (left back, right forward)", {"H": "m", "N": 3, "D1": 1, "D2": 150}), ("spin right", {"H": "m", "N": 3, "D1": 2, "D2": 150})]
 bad = []

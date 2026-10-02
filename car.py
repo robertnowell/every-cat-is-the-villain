@@ -142,7 +142,8 @@ class ElegooCar:
         l, r = lift(int(max(-255, min(255, l)))), lift(int(max(-255, min(255, r))))
         if l == 0 and r == 0:
             return self.stop()
-        if l >= 0 and r >= 0: self._drive_frame({"H": "d", "N": 4, "D1": l, "D2": r})
+        # N=4 is D1 = RIGHT side, D2 = left on the real car (measured 2 Oct: "D1" spun the right wheels); N=3 spins are not mirrored
+        if l >= 0 and r >= 0: self._drive_frame({"H": "d", "N": 4, "D1": r, "D2": l})
         elif l <= 0 and r <= 0: self.move("back", max(-l, -r))
         elif l < 0 < r: self.move("left", max(-l, r))
         else: self.move("right", max(l, -r))

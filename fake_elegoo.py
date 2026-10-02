@@ -73,7 +73,7 @@ class Fake:
         except ValueError: self.stats["bad_json"] += 1; return
         self.stats["commands"] += 1; n = d.get("N"); h = d.get("H", "")
         with self.lock:
-            if n == 4: self.lr = (int(d["D1"]), int(d["D2"]))
+            if n == 4: self.lr = (int(d["D2"]), int(d["D1"]))   # real car: D1 drives the right side
             elif n == 3:
                 sp = int(d.get("D2", 0)); self.lr = {1: (-sp, sp), 2: (sp, -sp), 3: (sp, sp), 4: (-sp, -sp)}.get(int(d["D1"]), (0, 0))
             elif n == 100: self.lr = (0, 0); self.stats["stops"] += 1
