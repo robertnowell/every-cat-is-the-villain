@@ -31,12 +31,15 @@ def main():
     if a.dash:
         from dash import Dash, annotate
         mem = None
-        if not a.no_cloud:
-            if os.environ.get("MEMORY_BACKEND") == "vast":
+        if not a.no_cloud or os.environ.get("MEMORY_BACKEND") in ("relay", "vast"):
+            if os.environ.get("MEMORY_BACKEND") == "relay":
+                from vast_memory import RelayMemory; mem = RelayMemory()    # VAST via the event-VM relay
+            elif os.environ.get("MEMORY_BACKEND") == "vast":
                 from vast_memory import VastMemory; mem = VastMemory()      # the event's VAST + Cosmos pipeline
             else:
                 from memory import Memory; mem = Memory()                   # local fallback: NVIDIA captions + embeddings
-            def ingest_loop():                                   # caption clips as they close, so a question only searches
+            def ingest_loop():
+                if os.environ.get("MEMORY_BACKEND") == "relay": return                                   # caption clips as they close, so a question only searches
                 while True:
                     try: mem.ingest_new()
                     except Exception as e: print("ingest skipped:", e)

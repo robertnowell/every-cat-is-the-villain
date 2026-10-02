@@ -3,7 +3,7 @@ Runs inside the main loop process (Dash(state).start()) and reads the shared `st
 from __future__ import annotations
 import threading, time, os, json
 import cv2
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, FileResponse
 import uvicorn
 
@@ -75,6 +75,25 @@ class Dash:
             if not self.memory: return JSONResponse({"answer": "memory not loaded", "clips": []})
             if not self.memory.rows: return JSONResponse({"answer": "Still describing the first clips; ask again in a moment.", "clips": []})
             return JSONResponse(self.memory.ask(q))
+        # ---- relay for the event VM (token-guarded; the VM reaches us through a cloudflared tunnel) ----
+        def _guard(token):
+            if not os.environ.get("RELAY_TOKEN") or token != os.environ["RELAY_TOKEN"]: raise HTTPException(403)
+        @app.get("/relay/pending")
+        def relay_pending(token: str = ""):
+            _guard(token); return JSONResponse(self.memory.pending() if hasattr(self.memory, "pending") else {"clips": [], "questions": []})
+        @app.get("/relay/clip/{name}")
+        def relay_clip(name: str, token: str = ""):
+            _guard(token); return clip(name)
+        @app.post("/relay/ack")
+        async def relay_ack(request: Request, token: str = ""):
+            _guard(token); self.memory.ack(await request.json()); return JSONResponse({"ok": True})
+        @app.post("/relay/answer")
+        async def relay_answer(request: Request, token: str = ""):
+            _guard(token); self.memory.answer(await request.json()); return JSONResponse({"ok": True})
+        @app.get("/relay/script")
+        def relay_script(token: str = ""):
+            _guard(token); return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vm_relay.py"), media_type="text/x-python")
+
         @app.get("/clip/{name}")
         def clip(name: str):
             src = os.path.join(self.clips_root, os.path.basename(name))

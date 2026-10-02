@@ -60,3 +60,56 @@ class VastMemory:
                           "score": round(float(res.get("similarity", res.get("score", 0)) or 0), 3),
                           "caption": (res.get("reasoning_content") or res.get("caption") or "")[:300]})
         return {"question": question, "answer": a.get("answer", ""), "evidence": a.get("evidence"), "clips": clips, "backend": "vast"}
+
+
+class RelayMemory:
+    """Laptop side of the VM relay. The laptop cannot reach the VAST pipeline, so the event VM pulls our clips and
+    pending questions through the dashboard's tunnel (dash.py /relay/*) and posts answers back. Same interface as Memory."""
+    def __init__(self, root="clips"):
+        import threading
+        self.root, self.lock = root, threading.Lock()
+        self.uploaded, self.inflight, self.questions = {}, {}, {}
+        self.rows = []                                   # the dashboard reads this to know whether anything is indexed yet
+
+    def pending(self):
+        now = time.time()
+        with self.lock:
+            clips = [os.path.basename(p) for p in sorted(glob.glob(os.path.join(self.root, "*.mp4")))
+                     if os.path.basename(p) not in self.uploaded and now - self.inflight.get(os.path.basename(p), 0) > 60
+                     and os.path.getsize(p) > 1000 and now - os.path.getmtime(p) > 6]
+            for c in clips[:3]: self.inflight[c] = now
+            qs = [{"id": k, "q": v["q"]} for k, v in self.questions.items() if v.get("answer") is None]
+        return {"clips": clips[:3], "questions": qs}
+
+    def ack(self, d):
+        with self.lock:
+            name = d.get("clip"); self.inflight.pop(name, None)
+            if d.get("ok"):
+                self.uploaded[name] = {"clip": os.path.join(self.root, name), "t": os.path.getmtime(os.path.join(self.root, name)),
+                                       "object_key": d.get("object_key"), "caption": ""}
+                self.rows = list(self.uploaded.values())
+
+    def answer(self, d):
+        with self.lock:
+            if d.get("id") in self.questions: self.questions[d["id"]]["answer"] = d
+
+    def ingest_new(self) -> int:
+        return 0                                         # the relay pulls clips; nothing to push from here
+
+    def ask(self, question: str, timeout: float = 120) -> dict:
+        import uuid
+        qid = uuid.uuid4().hex[:8]
+        with self.lock: self.questions[qid] = {"q": question, "t": time.time(), "answer": None}
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            a = self.questions[qid]["answer"]
+            if a is not None:
+                clips = []
+                for c in a.get("clips", []):
+                    name = c.get("clip")
+                    local = os.path.join(self.root, name) if name and os.path.exists(os.path.join(self.root, name)) else None
+                    clips.append({"clip": local or (c.get("source") or ""), "t": os.path.getmtime(local) if local else 0,
+                                  "score": round(float(c.get("score") or 0), 3), "caption": c.get("caption", "")})
+                return {"question": question, "answer": a.get("answer", ""), "evidence": a.get("evidence"), "clips": clips, "backend": "vast"}
+            time.sleep(0.5)
+        return {"question": question, "answer": "The VAST relay did not answer in time; is vm_relay.py running on the event machine?", "clips": []}
