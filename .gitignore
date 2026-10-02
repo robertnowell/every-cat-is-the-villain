@@ -1,0 +1,9 @@
+.venv/
+clips/
+events*.jsonl
+*.pt
+__pycache__/
+*.jpg
+*.mp4
+assets/local/
+demo_logs/
