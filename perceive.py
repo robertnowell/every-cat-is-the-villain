@@ -7,6 +7,10 @@ from shapes import Threat, FreeSpace, now
 CAT = 15  # COCO class id
 # The plush reads as "dog" (0.83) far more than "cat"; counting cat, dog and teddy bear took the floor test from 0/46 to 46/46 frames
 CAT_LIKE = [15, 16, 77]
+# ...but loosened that far a dark jacket filling the frame read as a cat. Measured on 543 no-cat frames from the real car plus
+# the plush captures: these per-class floors and a max box area give 0 false alarms (was 22) and keep the floor plush at 46/46.
+MIN_CONF = {15: 0.30, 16: 0.50, 77: 0.50}   # 0.40 let a hand through as "dog" 0.44; the plush reads dog 0.83
+MAX_AREA = 0.80
 
 class Perceiver:
     def __init__(self, weights="yolo11n.pt", device=None, conf=0.30, hfov_deg=62.0, debounce=2, clahe=False, window=5, classes=(CAT,)):
@@ -43,6 +47,14 @@ class Perceiver:
         # biggest cat wins
         boxes = r.boxes.xyxy.cpu().numpy(); confs = r.boxes.conf.cpu().numpy()
         ids = r.boxes.id.cpu().numpy() if r.boxes.id is not None else [None] * len(boxes)
+        if len(self.classes) > 1:                          # cat-like mode: per-class floors, drop frame-filling blobs
+            cls = r.boxes.cls.cpu().numpy().astype(int)
+            area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) / float(w * h)
+            keep = [k for k in range(len(boxes)) if confs[k] >= MIN_CONF.get(cls[k], 1.0) and area[k] < MAX_AREA]
+            if not keep:
+                self._recent.append(False); self._hits = sum(self._recent)
+                return Threat(now(), False)
+            boxes, confs, ids = boxes[keep], confs[keep], [ids[k] for k in keep]
         i = int(np.argmax((boxes[:, 3] - boxes[:, 1])))
         x1, y1, x2, y2 = boxes[i]
         cx = (x1 + x2) / 2

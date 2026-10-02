@@ -24,7 +24,7 @@ def main():
 
     car = __import__("sim").SimCar(a.sim) if a.sim else __import__("car").ElegooCar(a.host, a.video_port, a.cmd_port)
     # real car: the medium model on contrast-boosted frames at conf 0.15 (small model found the plush in 1/70 frames, this 22/70)
-    per = Perceiver() if a.sim else Perceiver(os.environ.get("CAT_WEIGHTS", "yolo11m.pt"), conf=0.15, clahe=True, classes=CAT_LIKE)
+    per = Perceiver() if a.sim else Perceiver(os.environ.get("CAT_WEIGHTS", "yolo11m.pt"), conf=0.15, clahe=True, classes=CAT_LIKE, debounce=3, window=5)
     rec = Recorder()
     sup = None if a.no_cloud else __import__("supervisor").Supervisor()
     mode, last_sup, recent = Mode(now(), "idle", 1e9), 0.0, collections.deque(maxlen=12)
