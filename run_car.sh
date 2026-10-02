@@ -19,4 +19,4 @@ echo "The car starts PAUSED. Open http://localhost:8000 and press Resume (or spa
 COSMOS_BASE=${COSMOS_BASE:-http://166.19.38.112:8001/v1} COSMOS_MODEL=${COSMOS_MODEL:-nvidia/cosmos3-nano-reasoner} \
 MEMORY_BACKEND=$MEMORY_BACKEND RELAY_TOKEN=$RELAY_TOKEN \
 "$CS" run --timeout 86400 --inject NVIDIA_API_KEY=NVIDIA_API_KEY --inject WANDB_API_KEY=WANDB_API_KEY --inject COSMOS_API_KEY=COSMOS_API_KEY -- \
-  sh -c 'exec .venv/bin/python main.py --host 192.168.4.1 --dash --seconds 0 --every 3 "$@" >> demo_logs/car.log 2>&1' _ "$@" > /dev/null
+  sh -c 'exec .venv/bin/python main.py --host 192.168.4.1 --dash --seconds 0 --every 1 "$@" >> demo_logs/car.log 2>&1' _ "$@" > /dev/null
