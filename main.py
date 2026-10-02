@@ -1,5 +1,5 @@
 """catbot: run the loop. --sim video.mp4 replaces the car. --no-cloud skips the supervisor."""
-import argparse, time, collections, threading, json
+import argparse, time, collections, threading, json, os
 import cv2
 from shapes import Mode, Threat, FreeSpace, to_json, now
 from perceive import Perceiver, StallDetector
@@ -32,7 +32,10 @@ def main():
         from dash import Dash, annotate
         mem = None
         if not a.no_cloud:
-            from memory import Memory; mem = Memory()
+            if os.environ.get("MEMORY_BACKEND") == "vast":
+                from vast_memory import VastMemory; mem = VastMemory()      # the event's VAST + Cosmos pipeline
+            else:
+                from memory import Memory; mem = Memory()                   # local fallback: NVIDIA captions + embeddings
             def ingest_loop():                                   # caption clips as they close, so a question only searches
                 while True:
                     try: mem.ingest_new()

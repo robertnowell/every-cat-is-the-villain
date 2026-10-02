@@ -57,3 +57,15 @@ fake_elegoo.py --topdown, then `compose_demo.py cam.mp4 top.mp4 out.mp4` pairs t
 Results land in demo_logs/preflight.json, with the constants to change. Every byte on the control link is logged
 to demo_logs/car_wire.log. The car link budgets the 9600-baud ESP32->UNO serial link (about 960 bytes/s):
 drive commands only when they change plus a 10 Hz keepalive, ultrasonic polled at 5 Hz in the background.
+
+## Using the event's stack (VAST + NVIDIA Cosmos on CoreWeave + W&B)
+
+From the team config the event hands out (`/config/<team>.config` on the event VM):
+
+    export INGRESS_URL=... USERNAME=... PASSWORD=...            # VAST video pipeline backend (JWT login)
+    export COSMOS_BASE=$COSMOS3_REASON_URL/v1 COSMOS_MODEL=nvidia/cosmos3-reason   # live verdict + captions on Cosmos (no key)
+    export WANDB_API_KEY=... WANDB_PROJECT=$WANDB_TEAM/$WANDB_PROJECT WEAVE=1   # planner + answers on W&B Inference, traced in Weave
+    MEMORY_BACKEND=vast python main.py --dash
+
+`vast_memory.py` uploads every 5 s clip to the pipeline (`/api/v1/videos/upload`, with a cat-and-escape `custom_prompt`), where
+VAST DataEngine runs YOLO11, Cosmos Reason captions and Cosmos-Embed1 into VastDB; questions go to `/api/v1/agent/ask` and `/api/v1/search`.
